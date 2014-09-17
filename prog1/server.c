@@ -21,10 +21,6 @@ int main(int argc, char *argv[])
      char buffer[256];
      struct sockaddr_in serv_addr, cli_addr;
      int n;
-     char hostname[128];
-    
-     gethostname(hostname, sizeof hostname);
-     printf("My hostname: %s\n", hostname);
     
      if (argc < 2) {
          fprintf(stderr,"ERROR, no port provided\n");
