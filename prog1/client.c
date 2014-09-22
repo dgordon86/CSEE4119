@@ -8,7 +8,7 @@
 #include <netdb.h> 
 #include <arpa/inet.h>
 
-fd_set read_fds, write_fds; //file descriptor list contains stdin and socket connection to server
+fd_set read_fds,master, write_fds; //file descriptor list contains stdin and socket connection to server
 
 void error(const char *msg)
 {
@@ -26,6 +26,8 @@ int main(int argc, char *argv[])
     struct hostent *server;
 
     char buffer[256];
+    char servmsg[256];
+    
     if (argc < 3) {
        fprintf(stderr,"usage %s ipaddress portnum\n", argv[0]);
        exit(0);
@@ -53,12 +55,51 @@ int main(int argc, char *argv[])
     tv.tv_sec = 5;
     tv.tv_usec = 0;
     
-   /* FD_ZERO(&read_fds);    //clear file descriptors
-    FD_SET(sockfd, &read_fds);    //add server socket
-    FD_SET(STDIN_FILENO, &read_fds);
-    fdmax = (sockfd > STDIN_FILENO) ? sockfd : STDIN_FILENO;
-    */
+    
     int serverUp = 1;
+    int auth = 1;
+    
+    //Initial Authentication
+    while(auth) {
+        if((nbytes = recv(sockfd, buffer, sizeof buffer, 0)) > 0) {
+            //printf("Server Message: %s", buffer);
+            if( strncmp(buffer, "Too many incorrect logins.", nbytes) == 0)
+            {
+                printf("%s\n", buffer);
+                //auth = 1;
+            }
+            else if(strncmp(buffer, "Welcome to simple chat server!", nbytes) == 0) {
+                printf("%s\n", buffer);
+                auth = 0;
+            }
+            else {
+                
+                //user needs to authenticate
+                memset(&buffer, 0, sizeof(buffer));
+                strcpy(servmsg, "auth ");
+                printf("User: ");
+                fgets(buffer,sizeof(buffer), stdin);
+                buffer[strlen(buffer) -1] = '\0';
+                strcat(servmsg, buffer);
+                strcat(servmsg, " ");
+                 memset(&buffer, 0, sizeof(buffer));
+                printf("Password: ");
+                fgets(buffer,sizeof(buffer), stdin);
+                strcat(servmsg, buffer);
+                //printf("%s", servmsg);
+                if (send(sockfd, servmsg, strlen(servmsg) -1, 0) == -1) {
+                    error("send");
+                }
+            }
+        } else {
+            auth = 0;
+        }
+        
+        memset(&buffer, 0, sizeof(buffer));
+        memset(&servmsg, 0, sizeof(servmsg));
+    }
+    
+    
     while(serverUp) {
         FD_ZERO(&read_fds); //clear file descriptors
         FD_ZERO(&write_fds);
@@ -66,17 +107,18 @@ int main(int argc, char *argv[])
         FD_SET(STDIN_FILENO, &read_fds);
         FD_SET(sockfd, &write_fds);
         
-        if (select(sockfd+1, &read_fds, &write_fds, NULL, NULL) == -1) {
+        if (select(sockfd+1, &read_fds, NULL, NULL, NULL) == -1) {
             perror("select");
             exit(4);
         }
        
-        printf("Command:\n");
+        
+        
         //check if data from Server
         if(FD_ISSET(sockfd, &read_fds)) {
             // handle data server
             if ((nbytes = recv(sockfd, buffer, sizeof buffer, 0)) <= 0) {
-                // got error or connection closed by client
+                // got error or connection closed by server
                 if (nbytes == 0) {
                     // connection closed
                     printf("Server hung up: exiting\n");
@@ -92,12 +134,14 @@ int main(int argc, char *argv[])
                 printf("%s", buffer);
                 memset(&buffer, 0, sizeof(buffer));//reset buffer to zero
             }
+            
         }
         else if(FD_ISSET(STDIN_FILENO, &read_fds)) {
             if (fgets(buffer,sizeof(buffer), stdin)) {
+                
                 //printf("Length: %lu\n" ,strlen(buffer));
                 if(FD_ISSET(sockfd, &write_fds)) {
-                    if (send(sockfd, buffer, strlen(buffer), 0) == -1) {
+                    if (send(sockfd, buffer, strlen(buffer)-1, 0) == -1) {
                         error("send");
                     }
                 }
