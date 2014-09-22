@@ -28,7 +28,7 @@ struct User
 
 struct User allusers[15];
 int totalUsers = 15; //total number of users accepted
-
+char relayMsg[300]; //relay message buffer
 void cleanExit() {
     exit(0);
 }
@@ -56,6 +56,8 @@ struct User * findUserByName(char *username);
 struct User * findUserbySocket(int sockfd);
 void sendMessage(int sockfd, char *msg);
 void whoelse(int sockfd);
+void broadcast(int sockfd, char *bmsg);
+
 int main(int argc, char *argv[])
 {
     int portnum;      // portnum
@@ -68,7 +70,7 @@ int main(int argc, char *argv[])
     socklen_t addrlen;
     
     char buf[256];      // buffer for client data
-    char relayMsg[300]; //buffer for message not sure if we need this
+     //buffer for message not sure if we need this
     int i,j;
     int nbytes;         //bytes sent
     
@@ -174,8 +176,8 @@ int main(int argc, char *argv[])
                         //reset relay message to null
                         printf("%s\n", buf);
                         memset(relayMsg, 0, 300);
-                        strncpy(relayMsg, buf, nbytes);
-                        msg_receiv(i, relayMsg);
+                        //strncpy(relayMsg, buf, nbytes);
+                        msg_receiv(i, buf);
                         memset(buf, 0, 256);
                         /*
                         if (FD_ISSET(i, &master)) {
@@ -211,24 +213,51 @@ int main(int argc, char *argv[])
 void msg_receiv(int sockfd, char *msg) {
     
     char command[100];
+    memset(command, 0, 100);
     int i = 0;
     while((msg[i] != ' ') && (msg[i] != '\0')) {
         command[i] = msg[i];
         i++;
     }
-    //authentication
+    //if else chain to determine what command was entered by client
     if(strcmp(command, "auth") == 0) {
+        printf("trying to authenticate\n");
         authenticate(sockfd, msg);
     }else if(strcmp(command, "whoelse") == 0) {
         whoelse(sockfd);
-    } else {
+    } else if(strcmp(command, "broadcast") == 0) {
+        broadcast(sockfd, msg);
+    }else {
        sendMessage(sockfd, "Unrecoginized command.\n");
     }
     
 }
 
+void broadcast(int sockfd, char *bmsg) {
+    
+}
 void whoelse(int sockfd) {
-    printf("yeah looking for others");
+    
+    int i;
+    int foundsome = 0;
+    for (i=0; i < totalUsers; i++) {
+        if(allusers[i].loggedin == 1 && allusers[i].socket != sockfd) {
+            //printf("%s\n", allusers[i].name);
+            strcat(relayMsg, allusers[i].name);
+            strcat(relayMsg, ", ");
+            foundsome = 1;
+        }
+    }
+
+    
+    if(foundsome) {
+        i = strlen(relayMsg);
+        relayMsg[i -2] = '\n';
+        relayMsg[i -1] = '\0';
+        sendMessage(sockfd, relayMsg);
+    } else {
+        sendMessage(sockfd, "No other users\n");
+    }
 }
 
 /*got auth command, authinfo should contain a username and password string */
@@ -236,7 +265,6 @@ void authenticate(int sockfd, char *authinfo) {
     
     struct User *user;
     char tmp[256];
-    //char password[100];
     memset(tmp, 0, 256);
     
     int i = 5; //start at 5 because command was 'auth '

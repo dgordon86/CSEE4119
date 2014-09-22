@@ -131,7 +131,7 @@ int main(int argc, char *argv[])
                 FD_CLR(sockfd, &read_fds);
             }
             else{
-                printf("%s", buffer);
+                printf(">   %s", buffer);
                 memset(&buffer, 0, sizeof(buffer));//reset buffer to zero
             }
             
