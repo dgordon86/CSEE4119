@@ -16,7 +16,8 @@
 
 fd_set master;    // master file descriptor list
 fd_set read_fds;  // temp file descriptor list for select()
-
+int fdmax;
+ int listener;
 struct User
 {
     char  name[50];
@@ -62,9 +63,9 @@ int main(int argc, char *argv[])
 {
     int portnum;      // portnum
    
-    int fdmax;        // maximum file descriptor number
+            // maximum file descriptor number
     
-    int listener;     // listening socket descriptor
+        // listening socket descriptor
     int newfd;        // newly accept()ed socket descriptor
     struct sockaddr_in serv_addr, cli_addr; // client address
     socklen_t addrlen;
@@ -234,6 +235,33 @@ void msg_receiv(int sockfd, char *msg) {
 }
 
 void broadcast(int sockfd, char *bmsg) {
+    struct User *buser = findUserbySocket(sockfd);
+    
+    int i=10; //start after broadcast command
+    int j = 0;
+    if(buser != NULL) {
+        strcpy(relayMsg, buser->name);
+        strcat(relayMsg, ": ");
+        j = strlen(relayMsg);
+        
+        while (bmsg[i] != '\0') {
+            relayMsg[j +i -10] = bmsg[i];
+            i++;
+        }
+        strcat(relayMsg, "\n");
+        //broadcast to everyone except us and listener
+        for(j = 0; j <= fdmax; j++) {
+            // send to everyone!
+            if (FD_ISSET(j, &master)) {
+                // except the listener and ourselves
+                if (j != listener && j != sockfd) {
+                    if (send(j, relayMsg, strlen(relayMsg), 0) == -1) {
+                        perror("send");
+                    }
+                }
+            }
+        }
+    }
     
 }
 void whoelse(int sockfd) {
