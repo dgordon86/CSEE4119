@@ -373,12 +373,17 @@ void authenticate(int sockfd, char *authinfo) {
         //compare passwords
         if(strcmp(tmp, user->password) == 0) {
             //need to put in stuff for if user is already logged in
-            
-            //set login for user
-            user->socket = sockfd;
-            user->loggedin = 1; //set login to true
-            user->lfailures = 0;
-            sendMessage(sockfd, "Welcome to simple chat server!");
+            if(user->loggedin == 1) {
+                sendMessage(sockfd, "User already logged in.");
+                close(sockfd); // bye!
+                FD_CLR(sockfd, &master); // remove from master set
+            } else {
+                //set login for user
+                user->socket = sockfd;
+                user->loggedin = 1; //set login to true
+                user->lfailures = 0;
+                sendMessage(sockfd, "Welcome to simple chat server!");
+            }
         } else {
             if(user->lfailures == 2) {
                 sendMessage(sockfd, "Too many incorrect logins.");
@@ -391,12 +396,8 @@ void authenticate(int sockfd, char *authinfo) {
                 sendMessage(sockfd, "Incorrect username/password combination.\n");
                 //printf("incorrect password %d\n", user->lfailures);
             }
-            
         }
-       
     }
-    //return "sup biatch";
-    
 }
 
 void sendMessage(int sockfd, char *msg) {

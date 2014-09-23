@@ -63,13 +63,14 @@ int main(int argc, char *argv[])
     while(auth) {
         if((nbytes = recv(sockfd, buffer, sizeof buffer, 0)) > 0) {
             //printf("Server Message: %s", buffer);
-            if( strncmp(buffer, "Too many incorrect logins.", nbytes) == 0)
+            if( strncmp(buffer, "Too many incorrect logins.", nbytes) == 0 ||
+                strncmp(buffer, "User already logged in.", nbytes) == 0)
             {
-                printf("%s\n", buffer);
+                printf("> %s\n", buffer);
                 //auth = 1;
             }
             else if(strncmp(buffer, "Welcome to simple chat server!", nbytes) == 0) {
-                printf("%s\n", buffer);
+                printf("> %s\n", buffer);
                 auth = 0;
             }
             else {
@@ -77,13 +78,13 @@ int main(int argc, char *argv[])
                 //user needs to authenticate
                 memset(&buffer, 0, sizeof(buffer));
                 strcpy(servmsg, "auth ");
-                printf("User: ");
+                printf("> User: ");
                 fgets(buffer,sizeof(buffer), stdin);
                 buffer[strlen(buffer) -1] = '\0';
                 strcat(servmsg, buffer);
                 strcat(servmsg, " ");
                  memset(&buffer, 0, sizeof(buffer));
-                printf("Password: ");
+                printf("> Password: ");
                 fgets(buffer,sizeof(buffer), stdin);
                 strcat(servmsg, buffer);
                 //printf("%s", servmsg);
