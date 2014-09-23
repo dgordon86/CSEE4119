@@ -57,7 +57,9 @@ struct User * findUserByName(char *username);
 struct User * findUserbySocket(int sockfd);
 void sendMessage(int sockfd, char *msg);
 void whoelse(int sockfd);
+void logout(int sockfd, char *optmsg);
 void broadcast(int sockfd, char *bmsg);
+void message(int sockfd, char *bmsg);
 
 int main(int argc, char *argv[])
 {
@@ -128,6 +130,7 @@ int main(int argc, char *argv[])
     
     //server loop
     while(1) {
+         memset(relayMsg, 0, 300);
         read_fds = master; // copy it
         if (select(fdmax+1, &read_fds, NULL, NULL, NULL) == -1) {
             perror("select");
@@ -168,15 +171,17 @@ int main(int argc, char *argv[])
                         if (nbytes == 0) {
                             // connection closed
                             printf("selectserver: socket %d hung up\n", i);
+                            
                         } else {
                             perror("recv");
                         }
-                        close(i); // bye!
-                        FD_CLR(i, &master); // remove from master set
+                        //close(i); // bye!
+                        //FD_CLR(i, &master); // remove from master set
+                        logout(i, "");
                     } else {
                         //reset relay message to null
                         printf("%s\n", buf);
-                        memset(relayMsg, 0, 300);
+                       
                         //strncpy(relayMsg, buf, nbytes);
                         msg_receiv(i, buf);
                         memset(buf, 0, 256);
@@ -228,41 +233,78 @@ void msg_receiv(int sockfd, char *msg) {
         whoelse(sockfd);
     } else if(strcmp(command, "broadcast") == 0) {
         broadcast(sockfd, msg);
+    }else if(strcmp(command, "message") == 0) {
+        message(sockfd, msg);
+    }else if(strcmp(command, "logout") == 0) {
+        logout(sockfd, "Goodbye!\n");
     }else {
        sendMessage(sockfd, "Unrecoginized command.\n");
     }
     
 }
 
+void message(int sockfd, char *bmsg) {
+    
+    char tousername[100];
+    memset(tousername, 0, 100);
+    struct User *fromuser = findUserbySocket(sockfd);
+    struct User *touser;
+    
+    int i = 8;
+    if (fromuser != NULL) {
+        while (bmsg[i] != ' ' && bmsg[i] != '\0') {
+            tousername[i - 8] = bmsg[i];
+            i++;
+        }
+    }
+    touser = findUserByName(tousername);
+    if(touser != NULL && touser->loggedin) {
+        strcpy(relayMsg, fromuser->name);
+        strcat(relayMsg, ": ");
+        int k = strlen(relayMsg);
+        int j = ++i;
+        if (i < strlen(bmsg)) {
+            char *msgPointer = bmsg + i;
+            strncat(relayMsg, msgPointer, strlen(bmsg) - i);
+            strcat(relayMsg, "\n");
+            sendMessage(touser->socket, relayMsg);
+        } else {
+            sendMessage(sockfd, "No message body, nothing sent.\n");
+        }
+    } else {
+        sendMessage(sockfd, "User could not be found. Message not sent.\n");
+    }
+    
+}
 void broadcast(int sockfd, char *bmsg) {
     struct User *buser = findUserbySocket(sockfd);
-    
+    struct User *ouser;
     int i=10; //start after broadcast command
     int j = 0;
     if(buser != NULL) {
         strcpy(relayMsg, buser->name);
         strcat(relayMsg, ": ");
         j = strlen(relayMsg);
-        
-        while (bmsg[i] != '\0') {
-            relayMsg[j +i -10] = bmsg[i];
-            i++;
-        }
+        char *msgPointer = bmsg + i;
+        strncat(relayMsg, msgPointer, strlen(bmsg) - i);
+      
         strcat(relayMsg, "\n");
         //broadcast to everyone except us and listener
         for(j = 0; j <= fdmax; j++) {
             // send to everyone!
             if (FD_ISSET(j, &master)) {
-                // except the listener and ourselves
                 if (j != listener && j != sockfd) {
-                    if (send(j, relayMsg, strlen(relayMsg), 0) == -1) {
-                        perror("send");
+                    //only broadcast to users who have been logged in
+                    ouser = findUserbySocket(j);
+                    if(ouser != NULL && ouser->loggedin) {
+                        if (send(j, relayMsg, strlen(relayMsg), 0) == -1) {
+                            perror("send");
+                        }
                     }
                 }
             }
         }
     }
-    
 }
 void whoelse(int sockfd) {
     
@@ -288,6 +330,23 @@ void whoelse(int sockfd) {
     }
 }
 
+void logout(int sockfd, char *optmsg) {
+    //optionally send message
+    if(strlen (optmsg) > 0) {
+        sendMessage(sockfd, optmsg);
+    }
+    
+    //reset user
+    struct User *rmUser = findUserbySocket(sockfd);
+    if(rmUser != NULL) {
+        rmUser->loggedin = 0;
+        rmUser->lfailures = 0;
+        rmUser->socket = 0;
+    }
+    //close socket
+    close(sockfd); // bye!
+    FD_CLR(sockfd, &master); // remove from master set
+}
 /*got auth command, authinfo should contain a username and password string */
 void authenticate(int sockfd, char *authinfo) {
     

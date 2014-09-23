@@ -121,7 +121,7 @@ int main(int argc, char *argv[])
                 // got error or connection closed by server
                 if (nbytes == 0) {
                     // connection closed
-                    printf("Server hung up: exiting\n");
+                    printf("> Disconnected from server: exiting\n");
                 } else {
                     error("recv");
                 }
@@ -131,7 +131,7 @@ int main(int argc, char *argv[])
                 FD_CLR(sockfd, &read_fds);
             }
             else{
-                printf(">   %s", buffer);
+                printf("> %s", buffer);
                 memset(&buffer, 0, sizeof(buffer));//reset buffer to zero
             }
             
