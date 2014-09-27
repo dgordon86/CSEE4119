@@ -64,7 +64,8 @@ int main(int argc, char *argv[])
         if((nbytes = recv(sockfd, buffer, sizeof buffer, 0)) > 0) {
             //printf("Server Message: %s", buffer);
             if( strncmp(buffer, "Too many incorrect logins.", nbytes) == 0 ||
-                strncmp(buffer, "User already logged in.", nbytes) == 0)
+                strncmp(buffer, "User already logged in.", nbytes) == 0 ||
+               strncmp(buffer, "Blocked for too many incorrect login attempts.", nbytes) == 0 )
             {
                 printf("> %s\n", buffer);
                 //auth = 1;
@@ -74,7 +75,7 @@ int main(int argc, char *argv[])
                 auth = 0;
             }
             else {
-                
+                printf("> %s\n", buffer);
                 //user needs to authenticate
                 memset(&buffer, 0, sizeof(buffer));
                 strcpy(servmsg, "auth ");

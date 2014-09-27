@@ -12,20 +12,43 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <time.h>
 
+#define BLOCK_TIME 60 //block time is defined in seconds
+#define LAST_HOUR 1 //last hour is defined in minutes
 
 fd_set master;    // master file descriptor list
 fd_set read_fds;  // temp file descriptor list for select()
 int fdmax;
- int listener;
+int listener;
 struct User
 {
     char  name[50];
     char  password[50];
     int   socket;
     int   loggedin; //boolean if logged in, intially set to 0
-    int   lfailures;
+    time_t logout;
 };
+
+struct Client
+{
+    int sockfd;
+    int ipaddress;
+    char name[50];
+    int attempts;
+};
+
+struct BlockedUser {
+    char name[50];
+    int ipaddress;
+    time_t sec;
+};
+
+struct BlockedUser blocked[20];
+int totalBlocks=0;
+
+struct Client currconns[20];
+int totalConns= 0;
 
 struct User allusers[15];
 int totalUsers = 15; //total number of users accepted
@@ -39,27 +62,22 @@ void error(const char *msg)
     perror(msg);
     exit(1);
 }
-/*/ get sockaddr, IPv4 or IPv6:
-void *get_in_addr(struct sockaddr *sa)
-{
-    if (sa->sa_family == AF_INET) {
-        return &(((struct sockaddr_in*)sa)->sin_addr);
-    }
-    
-    return &(((struct sockaddr_in6*)sa)->sin6_addr);
-}*/
 
 int getusers(char *filename, FILE *fp);
-
 void msg_receiv(int sockfd, char *msg);
 void authenticate(int sockfd, char *authinfo);
+struct Client * findClientBySocket(int sockfd);
+void removeClient(int sockfd);
 struct User * findUserByName(char *username);
 struct User * findUserbySocket(int sockfd);
 void sendMessage(int sockfd, char *msg);
 void whoelse(int sockfd);
+void wholasthr(int sockfd);
 void logout(int sockfd, char *optmsg);
 void broadcast(int sockfd, char *bmsg);
 void message(int sockfd, char *bmsg);
+void blockuser(char *username, int ipaddress);
+int isblocked(char *username, int ipaddress);
 
 int main(int argc, char *argv[])
 {
@@ -88,11 +106,6 @@ int main(int argc, char *argv[])
     
     //get users
     totalUsers = getusers("user_pass.txt", userfile);
-    /*for (int u =0; u < totalUsers; u++)
-    {
-        printf("%d: %s-%s\n", u, allusers[u].name, allusers[u].password);
-    }*/
-    
     
     FD_ZERO(&master);    //clear file descriptors
     FD_ZERO(&read_fds);
@@ -125,8 +138,8 @@ int main(int argc, char *argv[])
     // add the listener to the master set
     FD_SET(listener, &master);
     
-    // keep track of the biggest file descriptor
-    fdmax = listener; // so far, it's this one
+    // keep track of the largest file descriptor
+    fdmax = listener;
     
     //server loop
     while(1) {
@@ -147,17 +160,24 @@ int main(int argc, char *argv[])
                                    (struct sockaddr *)&cli_addr,
                                    &addrlen);
                     
+                    printf("IP: %d\n", cli_addr.sin_addr.s_addr);
                     if (newfd == -1) {
                         perror("accept");
                     } else {
                         FD_SET(newfd, &master); // add to master set
+                        //track ipaddress of connection
+                        if ( totalConns < 20) {
+                            currconns[totalConns].sockfd = newfd;
+                            currconns[totalConns].ipaddress = cli_addr.sin_addr.s_addr;
+                            totalConns++;
+                        }
                         if (newfd > fdmax) {    // keep track of the max
                             fdmax = newfd;
                         }
                         
                         //prompt user for username/password
                         if (FD_ISSET(newfd, &master)) {
-                            if (send(newfd, "Authenticate:\n", 14, 0) == -1) {
+                            if (send(newfd, "Please authenticate", 20, 0) == -1) {
                                 perror("send");
                             }
                         }
@@ -175,38 +195,14 @@ int main(int argc, char *argv[])
                         } else {
                             perror("recv");
                         }
-                        //close(i); // bye!
-                        //FD_CLR(i, &master); // remove from master set
+                        
                         logout(i, "");
                     } else {
                         //reset relay message to null
                         printf("%s\n", buf);
-                       
-                        //strncpy(relayMsg, buf, nbytes);
                         msg_receiv(i, buf);
                         memset(buf, 0, 256);
-                        /*
-                        if (FD_ISSET(i, &master)) {
-                            if (send(i, "Welcome to simple chat server!\n", strlen("Welcome to simple chat server!\n"), 0) == -1) {
-                                perror("send");
-                            }
-                        }*/
-                        /*struct User *newuser;
-                        newuser = findUserbySocket(i);
-                        
-                        printf("Password of new user: %s\n", newuser->password);*/
-                        // we got some data from a client
-                        /*for(j = 0; j <= fdmax; j++) {
-                            // send to everyone!
-                            if (FD_ISSET(j, &master)) {
-                                // except the listener and ourselves
-                                if (j != listener && j != i) {
-                                    if (send(j, relayMsg, strlen(relayMsg), 0) == -1) {
-                                        perror("send");
-                                    }
-                                }
-                            }
-                        }*/
+            
                     }
                 } // END handle data from client
             } // END got new incoming connection
@@ -231,6 +227,8 @@ void msg_receiv(int sockfd, char *msg) {
         authenticate(sockfd, msg);
     }else if(strcmp(command, "whoelse") == 0) {
         whoelse(sockfd);
+    }else if(strcmp(command, "wholasthr") == 0) {
+        wholasthr(sockfd);
     } else if(strcmp(command, "broadcast") == 0) {
         broadcast(sockfd, msg);
     }else if(strcmp(command, "message") == 0) {
@@ -330,6 +328,34 @@ void whoelse(int sockfd) {
     }
 }
 
+/***
+ DISPLAYS NAME OF ONLY THOSE USERS THAT CONNECTED WITHIN THE LAST HOUR **/
+void wholasthr(int sockfd) {
+    int i;
+    int foundsome = 0;
+    time_t sec = time(NULL);
+    for (i=0; i < totalUsers; i++) {
+        //if not ourselves
+        if(allusers[i].socket != sockfd){
+            if(allusers[i].loggedin == 1 || ((sec - allusers[i].logout) < (LAST_HOUR *60)) ) {
+            strcat(relayMsg, allusers[i].name);
+            strcat(relayMsg, ", ");
+            foundsome = 1;
+            }
+        }
+    }
+    
+    if(foundsome) {
+        i = strlen(relayMsg);
+        relayMsg[i -2] = '\n';
+        relayMsg[i -1] = '\0';
+        sendMessage(sockfd, relayMsg);
+    } else {
+        sendMessage(sockfd, "No other users\n");
+    }
+    
+}
+
 void logout(int sockfd, char *optmsg) {
     //optionally send message
     if(strlen (optmsg) > 0) {
@@ -340,9 +366,15 @@ void logout(int sockfd, char *optmsg) {
     struct User *rmUser = findUserbySocket(sockfd);
     if(rmUser != NULL) {
         rmUser->loggedin = 0;
-        rmUser->lfailures = 0;
         rmUser->socket = 0;
+        
+        //record logout time
+        rmUser->logout = time (NULL);
     }
+    
+    //remove client from list
+    removeClient(sockfd);
+    
     //close socket
     close(sockfd); // bye!
     FD_CLR(sockfd, &master); // remove from master set
@@ -351,6 +383,7 @@ void logout(int sockfd, char *optmsg) {
 void authenticate(int sockfd, char *authinfo) {
     
     struct User *user;
+    struct Client *client;
     char tmp[256];
     memset(tmp, 0, 256);
     
@@ -361,7 +394,18 @@ void authenticate(int sockfd, char *authinfo) {
     }
     
     user = findUserByName(tmp);
-    if(user != NULL) {
+    client = findClientBySocket(sockfd);
+    if(user != NULL) { //is a valid username
+        
+        //if user is already logged in just return
+        if(user->loggedin == 1) {
+            logout(sockfd, "User already logged in.");
+            return;
+        } else if (isblocked(user->name, client->ipaddress)) {//also check if user is currently blocked
+            logout(sockfd, "Blocked for too many incorrect login attempts.");
+            return;
+        }
+        
         memset(tmp, 0, 256);
         //get password
         int j = ++i;
@@ -369,35 +413,103 @@ void authenticate(int sockfd, char *authinfo) {
             tmp[i -j] = authinfo[i];
             i++;
         }
+      
         
         //compare passwords
         if(strcmp(tmp, user->password) == 0) {
-            //need to put in stuff for if user is already logged in
-            if(user->loggedin == 1) {
-                sendMessage(sockfd, "User already logged in.");
-                close(sockfd); // bye!
-                FD_CLR(sockfd, &master); // remove from master set
-            } else {
                 //set login for user
                 user->socket = sockfd;
                 user->loggedin = 1; //set login to true
-                user->lfailures = 0;
                 sendMessage(sockfd, "Welcome to simple chat server!");
-            }
         } else {
-            if(user->lfailures == 2) {
-                sendMessage(sockfd, "Too many incorrect logins.");
-                close(sockfd); // bye!
-                FD_CLR(sockfd, &master); // remove from master set
-                user->lfailures = 0;
-                //set block??
+            //incorrect password
+           
+            if(strcmp(user->name, client->name) == 0) {
+                client->attempts++;
+                if(client->attempts == 3) {
+                    //block now
+                    blockuser(user->name, client->ipaddress);
+                    logout(sockfd, "Too many incorrect logins.");
+                    
+                } else {
+                 sendMessage(sockfd, "Incorrect password.");
+                }
             } else {
-                user->lfailures++;
-                sendMessage(sockfd, "Incorrect username/password combination.\n");
-                //printf("incorrect password %d\n", user->lfailures);
+                //set username to client
+                memset(client->name, 0, 50);
+                strncpy(client->name, user->name, strlen(user->name));
+                client->attempts = 1;
+                sendMessage(sockfd, "Incorrect password.");
+                
+            }
+        }
+    } else {
+        //username not recognized
+       memset(client->name, 0, 50); //resent client username to nothing
+        sendMessage(sockfd, "Unrecognized username. Please try again.");
+    }
+}
+
+void blockuser(char *username, int ipaddress) {
+    if(totalBlocks < 20) {
+        blocked[totalBlocks].ipaddress = ipaddress;
+        strcpy(blocked[totalBlocks].name, username);
+        blocked[totalBlocks].sec = time (NULL);
+        totalBlocks++;
+    }
+}
+int isblocked(char *username, int ipaddress){
+    //printf("Called lblockd for %s:%d\n", username, ipaddress);
+    int i;
+    for(i=0; i < totalBlocks; i++) {
+        time_t sec;
+        sec = time (NULL);
+        if (blocked[i].ipaddress == ipaddress && strcmp(blocked[i].name, username) == 0) {
+            
+            if ((sec - blocked[i].sec) < BLOCK_TIME) {
+                //yes blocked
+                return 1;
+            } else {
+                //block is over remove block and return 0
+                printf("found block that is over\n");
+                while (i < totalBlocks) {
+                    blocked[i] = blocked[i +1];
+                    i++;
+                }
+                totalBlocks--;
+                return 0;
             }
         }
     }
+    //no blocks found
+    return 0;
+    
+}
+void removeClient(int sockfd) {
+    int i;
+    int j;
+    int foundrem =0;
+    for( i=0; i < totalConns; i++) {
+        if(currconns[i].sockfd == sockfd) {
+            //j = i +1;
+            while( i < totalConns) {
+                currconns[i] = currconns[i +1];
+                i++;
+            }
+            totalConns--; //decrement
+            break;
+        }
+    }
+}
+
+struct Client * findClientBySocket(int sockfd) {
+    int i;
+    for( i=0; i < totalConns; i++) {
+        if(currconns[i].sockfd == sockfd) {
+            return &currconns[i];
+        }
+    }
+    return NULL;
 }
 
 void sendMessage(int sockfd, char *msg) {
@@ -456,9 +568,8 @@ int getusers(char *filename, FILE *fp) {
             }
             allusers[i].password[j-spc-2] = '\0';
             
-            allusers[i].socket = allusers[i].loggedin =
-            allusers[i].lfailures = 0;
-            
+            allusers[i].socket = allusers[i].loggedin = 0;
+            allusers[i].logout = 0;
             i++;
         } else {
             error("An error occured while parsing users from text file\n");
