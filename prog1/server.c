@@ -15,7 +15,7 @@
 #include <time.h>
 
 #define BLOCK_TIME 60 //block time is defined in seconds
-#define LAST_HOUR 1 //last hour is defined in minutes
+#define LAST_HOUR 60 //LAST_HOUR is defined in minutes, LAST_HOUR must be an integer greater than 0
 
 fd_set master;    // master file descriptor list
 fd_set read_fds;  // temp file descriptor list for select()
