@@ -38,8 +38,11 @@ Sample commands
 Once the client has authenticated and recieve the welcome message: `Welcome to simple chat server!`, the client
 is able to run any of the commands defined in the assignment. For clarity any message recieved from the server is
 prefixed with a `>` character. Here is some basic interaction:
-    > Welcome to simple chat server!            //logged in as foobar
-    whoelse                                     //run command whoelse
+| Terminal | Description |
+| -------- |:------------|
+|> Welcome to simple chat server! | //logged in as foobar |
+| whoelse | //run command whoelse |
+
     > columbia, facebook                        //server says columbia and facebook currently logged on
     wholasthr                                   //run command wholasthr
     > columbia, seas, facebook                  //server says columbia, seas, and facebook have logged in in past hour
