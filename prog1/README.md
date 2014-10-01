@@ -38,6 +38,7 @@ Sample commands
 Once the client has authenticated and recieve the welcome message: `Welcome to simple chat server!`, the client
 is able to run any of the commands defined in the assignment. For clarity any message recieved from the server is
 prefixed with a `>` character. Here is some basic interaction:
+
 | Terminal | Description |
 | -------- |:------------|
 |> Welcome to simple chat server! | //logged in as foobar |
