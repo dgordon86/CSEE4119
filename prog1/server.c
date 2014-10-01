@@ -238,7 +238,7 @@ int main(int argc, char *argv[])
                                 perror("send");
                             }
                         }
-                        /*printf("selectserver: new connection from s on "
+                        /*printf("new connection from s on "
                                "socket %d\n",newfd);*/
                     }
                 } else {
@@ -247,7 +247,7 @@ int main(int argc, char *argv[])
                         // got error or connection closed by client
                         if (nbytes == 0) {
                             // connection closed
-                            printf("selectserver: socket %d hung up\n", i);
+                            //printf("socket %d hung up\n", i);
                             
                         } else {
                             perror("recv");
