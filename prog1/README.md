@@ -11,10 +11,12 @@ The programming assignment was implemented using C on Mac OS: x86_64-apple-darwi
 
 How to Run
 --------------
-cd in to `prog1` and run
+cd in to `prog1` and run the command `make`
 
-    make
-
+    > make
+    > gcc -o Server server.c
+    > gcc -o Client client.c
+    
 Once the working copy is created, you can use the normal ``vlt up`` and ``vlt ci`` commands.
 
 Specifying CRX Host/Port
