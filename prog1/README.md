@@ -1,23 +1,19 @@
 4119: Socket Programming
 ========
 
-The code for the socket programming project is broken into two files. client.c and server.c
+The code for the socket programming project is broken into two files: client.c and server.c.
+The idea was to make the client "dumb" and simply relay messages between the end user and the server. All of the logic
+(such as authentication, timeouts, blocking, and commands) are handled on the server side.
 
-Building
+Development Environment
 --------
+The programming assignment was implemented using C on Mac OS: x86_64-apple-darwin13.4.0. Xcode text editor was used and command line to compile and run.
 
-This project uses Maven for building. Common commands:
-
-From the root directory, run ``mvn -PautoInstallPackage clean install`` to build the bundle and content package and install to a CQ instance.
-
-From the bundle directory, run ``mvn -PautoInstallBundle clean install`` to build *just* the bundle and install to a CQ instance.
-
-Using with VLT
+How to Run
 --------------
+cd in to `prog1` and run
 
-To use vlt with this project, first build and install the package to your local CQ instance as described above. Then cd to `content/src/main/content/jcr_root` and run
-
-    vlt --credentials admin:admin checkout -f ../META-INF/vault/filter.xml --force http://localhost:4502/crx
+    make
 
 Once the working copy is created, you can use the normal ``vlt up`` and ``vlt ci`` commands.
 
