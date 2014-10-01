@@ -279,7 +279,8 @@ int main(int argc, char *argv[])
 /* check for inactive clients based TIME_OUT */
 void checkInactive() {
     time_t currtime = time(NULL);
-    for(int i=0; i < totalConns; i++) {
+    int i;
+    for(i=0; i < totalConns; i++) {
         
         if((currtime - currconns[i].connect_time) > (TIME_OUT)) {
             //printf("%d: time out occurred: %lu\n",currconns[i].sockfd, currconns[i].connect_time);

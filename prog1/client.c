@@ -1,3 +1,9 @@
+/*
+ * client.c
+ * Client implementation for Programming Assignment 1: 4119
+ * @author Daniel Gordon - dmg2173@columbia.edu
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
