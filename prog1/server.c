@@ -1,6 +1,7 @@
 /*
  * server.c
  * Server implementation for Programming Assignment 1: 4119
+ * @author Daniel Gordon - dmg2173@columbia.edu
  */
 
 #include <stdio.h>
@@ -15,30 +16,35 @@
 #include <time.h>
 
 #define BLOCK_TIME 60 //block time is defined in seconds
-#define LAST_HOUR 60 //LAST_HOUR is defined in minutes, LAST_HOUR must be an integer greater than 0
-#define TIME_OUT 30 //TIME_OUT is defined in minutes, TIME_OUT must be an integer greater than 0
+#define LAST_HOUR 3600 //LAST_HOUR is defined in seconds, LAST_HOUR must be an integer greater than 0
+#define TIME_OUT 1800 //TIME_OUT is defined in seconds, TIME_OUT must be an integer greater than 0
 
 fd_set master;    // master file descriptor list
 fd_set read_fds;  // temp file descriptor list for select()
 int fdmax;
-int listener;
+int listener;   //listener socket
+
+//an object to hold user, including name and password
 struct User
 {
     char  name[50];
     char  password[50];
     int   socket;
     int   loggedin; //boolean if logged in, intially set to 0
-    time_t logout;
+    time_t logout_time;
 };
 
+//object holds additional data from socket for easy access
 struct Client
 {
     int sockfd;
     int ipaddress;
     char name[50];
     int attempts;
+    time_t connect_time;
 };
 
+//helps maintain a list of blocked users after 3 consecutive login attempts
 struct BlockedUser {
     char name[50];
     int ipaddress;
@@ -53,50 +59,90 @@ int totalConns= 0;
 
 struct User allusers[15];
 int totalUsers = 15; //total number of users accepted
+
 char relayMsg[300]; //relay message buffer
+
 void cleanExit() {
     exit(0);
 }
 
+/* Display error messages to terminal*/
 void error(const char *msg)
 {
     perror(msg);
     exit(1);
 }
 
+//populates list of users from 'user_pass.txt' file
 int getusers(char *filename, FILE *fp);
+
+/*after a connection has been handles all subsequent 
+ communication from clients based on command */
 void msg_receiv(int sockfd, char *msg);
+
+/* handles authentication logic for a user login.
+ includes tracking failed login attempts and adding
+ user/ipaddress to blocked list */
 void authenticate(int sockfd, char *authinfo);
+
+//utility method to find a corresponding client from socket
 struct Client * findClientBySocket(int sockfd);
+
+//removes client from tracked list
 void removeClient(int sockfd);
+
+//utility method for finding a user based on name
 struct User * findUserByName(char *username);
+
+//utility method for finding a user based on socket
 struct User * findUserbySocket(int sockfd);
+
+//conveinence method to send a message to a socket
 void sendMessage(int sockfd, char *msg);
-void whoelse(int sockfd);
-void wholasthr(int sockfd);
+
+/* convenience method to disconnect a socket,
+ and clean up all references */
 void logout(int sockfd, char *optmsg);
+
+/* Implementation of whoelse command.
+ Displays name of other connected users*/
+void whoelse(int sockfd);
+
+/*Implementation of wholasthr command.
+ Displays name of only those users that connected
+ within the last hour */
+void wholasthr(int sockfd);
+
+/* Implementation of broadcast command.
+ Broadcasts a message to all users */
 void broadcast(int sockfd, char *bmsg);
+
+/* Implementation of message command.
+ Private message is sent to user */
 void message(int sockfd, char *bmsg);
+
+//convenience method to block a user for a given ipaddress
 void blockuser(char *username, int ipaddress);
+
+//check if a user at a given ipaddress is blocked
 int isblocked(char *username, int ipaddress);
+
+/*check for all clients who have been inactive for longer
+ than TIME_OUT period */
+void checkInactive();
 
 int main(int argc, char *argv[])
 {
     int portnum;      // portnum
-   
-            // maximum file descriptor number
-    
-        // listening socket descriptor
     int newfd;        // newly accept()ed socket descriptor
-    struct sockaddr_in serv_addr, cli_addr; // client address
+    struct sockaddr_in serv_addr, cli_addr; // server and client address
     socklen_t addrlen;
     
     char buf[256];      // buffer for client data
-     //buffer for message not sure if we need this
     int i,j;
     int nbytes;         //bytes sent
     
-    FILE *userfile;
+    
     
     //Get port number from command line
     if (argc < 2) {
@@ -106,6 +152,7 @@ int main(int argc, char *argv[])
     portnum = atoi(argv[1]);
     
     //get users
+    FILE *userfile;
     totalUsers = getusers("user_pass.txt", userfile);
     
     FD_ZERO(&master);    //clear file descriptors
@@ -117,10 +164,11 @@ int main(int argc, char *argv[])
     serv_addr.sin_addr.s_addr = INADDR_ANY;
     serv_addr.sin_port = htons(portnum);
     
-    //get socket
+    //get socket based on command line arg
     listener = socket(PF_INET, SOCK_STREAM, 0);
     if (listener < 0)
         error("ERROR opening socket");
+    
     //reuse port num yes
     int yes = 1;
     setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int));
@@ -130,7 +178,7 @@ int main(int argc, char *argv[])
         error("ERROR on binding");
     }
     
-    
+    //open up socket based on command line arg
     if (listen(listener, 10) == -1) {
         perror("listen");
         exit(3);
@@ -142,11 +190,16 @@ int main(int argc, char *argv[])
     // keep track of the largest file descriptor
     fdmax = listener;
     
+    //timeout select block to check for inactivity
+    struct timeval tv;
+    tv.tv_sec = TIME_OUT;
+    
     //server loop
     while(1) {
          memset(relayMsg, 0, 300);
-        read_fds = master; // copy it
-        if (select(fdmax+1, &read_fds, NULL, NULL, NULL) == -1) {
+         read_fds = master; // copy new status of connections
+        
+        if (select(fdmax+1, &read_fds, NULL, NULL, &tv) == -1) {
             perror("select");
             exit(4);
         }
@@ -155,13 +208,13 @@ int main(int argc, char *argv[])
         for(i = 0; i <= fdmax; i++) {
             if (FD_ISSET(i, &read_fds)) { //
                 if (i == listener) {
-                    // handle new connections
+                    // handle new client
                     addrlen = sizeof cli_addr;
                     newfd = accept(listener,
                                    (struct sockaddr *)&cli_addr,
                                    &addrlen);
                     
-                    printf("IP: %d\n", cli_addr.sin_addr.s_addr);
+                    //printf("IP: %d\n", cli_addr.sin_addr.s_addr);
                     if (newfd == -1) {
                         perror("accept");
                     } else {
@@ -170,7 +223,10 @@ int main(int argc, char *argv[])
                         if ( totalConns < 20) {
                             currconns[totalConns].sockfd = newfd;
                             currconns[totalConns].ipaddress = cli_addr.sin_addr.s_addr;
+                            currconns[totalConns].connect_time = time (NULL);
                             totalConns++;
+                        } else {
+                            logout(newfd, "Too Many connections");
                         }
                         if (newfd > fdmax) {    // keep track of the max
                             fdmax = newfd;
@@ -182,8 +238,8 @@ int main(int argc, char *argv[])
                                 perror("send");
                             }
                         }
-                        printf("selectserver: new connection from s on "
-                               "socket %d\n",newfd);
+                        /*printf("selectserver: new connection from s on "
+                               "socket %d\n",newfd);*/
                     }
                 } else {
                     // handle data from a client
@@ -199,20 +255,46 @@ int main(int argc, char *argv[])
                         
                         logout(i, "");
                     } else {
-                        //reset relay message to null
-                        printf("%s\n", buf);
+                        //update client connection time
+                        struct Client *client;
+                        client = findClientBySocket(i);
+                        if(client != NULL) {
+                            client->connect_time = time(NULL);
+                        }
+                       // printf("%s\n", buf);
                         msg_receiv(i, buf);
                         memset(buf, 0, 256);
             
                     }
-                } // END handle data from client
-            } // END got new incoming connection
-        } // END looping through file descriptors
-    } // END while
-    
+                }
+            }
+        }
+        
+        checkInactive();
+        
+    }
     return 0;
 }
 
+/* check for inactive clients based TIME_OUT */
+void checkInactive() {
+    time_t currtime = time(NULL);
+    for(int i=0; i < totalConns; i++) {
+        
+        if((currtime - currconns[i].connect_time) > (TIME_OUT)) {
+            //printf("%d: time out occurred: %lu\n",currconns[i].sockfd, currconns[i].connect_time);
+            logout(currconns[i].sockfd, "Time out due to inactivity.\n");
+        }
+        
+    }
+   
+}
+
+/* msg_receiv
+ * @param sockfd - the socket the message originated from
+ * @param msg - the message the client set
+ * message is parsed looking for commands recognized by server
+ */
 void msg_receiv(int sockfd, char *msg) {
     
     char command[100];
@@ -224,7 +306,7 @@ void msg_receiv(int sockfd, char *msg) {
     }
     //if else chain to determine what command was entered by client
     if(strcmp(command, "auth") == 0) {
-        printf("trying to authenticate\n");
+        //printf("trying to authenticate\n");
         authenticate(sockfd, msg);
     }else if(strcmp(command, "whoelse") == 0) {
         whoelse(sockfd);
@@ -242,6 +324,12 @@ void msg_receiv(int sockfd, char *msg) {
     
 }
 
+/* message
+ * @param sockfd - socket message originated from
+ * @param bmsg - the message to be sent should include 
+                a username of recipient
+ * Implementation of message command.
+ * Private message is sent to user. b */
 void message(int sockfd, char *bmsg) {
     
     char tousername[100];
@@ -275,6 +363,12 @@ void message(int sockfd, char *bmsg) {
     }
     
 }
+
+/* broadcast
+ * @param sockfd - socket message originated from
+ * @param bmsg - the message to be broadcast
+ * Implementation of broadcast command.
+ * Broadcasts a message to all users */
 void broadcast(int sockfd, char *bmsg) {
     struct User *buser = findUserbySocket(sockfd);
     struct User *ouser;
@@ -305,6 +399,11 @@ void broadcast(int sockfd, char *bmsg) {
         }
     }
 }
+
+/* whoelse
+ * @param sockfd - socket command originated from
+ * Implementation of whoelse command.
+ * Displays name of other connected users*/
 void whoelse(int sockfd) {
     
     int i;
@@ -329,8 +428,11 @@ void whoelse(int sockfd) {
     }
 }
 
-/***
- DISPLAYS NAME OF ONLY THOSE USERS THAT CONNECTED WITHIN THE LAST HOUR **/
+/* wholasthr
+ * @param sockfd - socket command originated from
+ * Implementation of wholasthr command.
+ * Displays name of only those users that connected
+ * within the last hour */
 void wholasthr(int sockfd) {
     int i;
     int foundsome = 0;
@@ -338,7 +440,7 @@ void wholasthr(int sockfd) {
     for (i=0; i < totalUsers; i++) {
         //if not ourselves
         if(allusers[i].socket != sockfd){
-            if(allusers[i].loggedin == 1 || ((sec - allusers[i].logout) < (LAST_HOUR *60)) ) {
+            if(allusers[i].loggedin == 1 || ((sec - allusers[i].logout_time) < (LAST_HOUR *60)) ) {
             strcat(relayMsg, allusers[i].name);
             strcat(relayMsg, ", ");
             foundsome = 1;
@@ -357,6 +459,12 @@ void wholasthr(int sockfd) {
     
 }
 
+/* logout
+ * @param sockfd - socket to disconnect
+ * @param optmsg - optional message to send to socket 
+                   before disconnecting
+ * convenience method to disconnect a socket,
+ * and clean up all references */
 void logout(int sockfd, char *optmsg) {
     //optionally send message
     if(strlen (optmsg) > 0) {
@@ -370,7 +478,7 @@ void logout(int sockfd, char *optmsg) {
         rmUser->socket = 0;
         
         //record logout time
-        rmUser->logout = time (NULL);
+        rmUser->logout_time = time (NULL);
     }
     
     //remove client from list
@@ -380,7 +488,13 @@ void logout(int sockfd, char *optmsg) {
     close(sockfd); // bye!
     FD_CLR(sockfd, &master); // remove from master set
 }
-/*got auth command, authinfo should contain a username and password string */
+
+/* authenticate
+ * @param sockfd - socket command originated from
+ * @param authinfo - string should contain username & password
+ * handles authentication logic for a user login.
+ * includes tracking failed login attempts and adding
+ * user/ipaddress to blocked list */
 void authenticate(int sockfd, char *authinfo) {
     
     struct User *user;
@@ -451,6 +565,10 @@ void authenticate(int sockfd, char *authinfo) {
     }
 }
 
+/* blockuser
+ * @param username - user to block
+ * @param ipaddress - ipaddress to block
+ */
 void blockuser(char *username, int ipaddress) {
     if(totalBlocks < 20) {
         blocked[totalBlocks].ipaddress = ipaddress;
@@ -459,6 +577,11 @@ void blockuser(char *username, int ipaddress) {
         totalBlocks++;
     }
 }
+
+/* isblocked
+ * @param username - user to check if blocked
+ * @param ipaddress - address to check if blocked
+ */
 int isblocked(char *username, int ipaddress){
     //printf("Called lblockd for %s:%d\n", username, ipaddress);
     int i;
@@ -472,7 +595,7 @@ int isblocked(char *username, int ipaddress){
                 return 1;
             } else {
                 //block is over remove block and return 0
-                printf("found block that is over\n");
+                //printf("found block that is over\n");
                 while (i < totalBlocks) {
                     blocked[i] = blocked[i +1];
                     i++;
@@ -486,6 +609,12 @@ int isblocked(char *username, int ipaddress){
     return 0;
     
 }
+
+/* removeClient
+ * @param sockfd - socket to remove and clean up
+ * when disconnecting a socket use this method to clean up
+ * tracked list of clients
+ */
 void removeClient(int sockfd) {
     int i;
     int j;
@@ -503,6 +632,9 @@ void removeClient(int sockfd) {
     }
 }
 
+/* findClientBySocket
+ * @param sockfd - returns a client or NULL matching socket
+ */
 struct Client * findClientBySocket(int sockfd) {
     int i;
     for( i=0; i < totalConns; i++) {
@@ -513,6 +645,10 @@ struct Client * findClientBySocket(int sockfd) {
     return NULL;
 }
 
+/* sendMessage
+ * @param sockfd - socket to send message to
+ * @param msg - to send
+ */
 void sendMessage(int sockfd, char *msg) {
     if (FD_ISSET(sockfd, &master)) {
         if (send(sockfd, msg, strlen(msg), 0) == -1) {
@@ -521,6 +657,9 @@ void sendMessage(int sockfd, char *msg) {
     }
 }
 
+/* findUserByName
+ * @param username - name of user to return
+ */
 struct User * findUserByName(char *username) {
     int i;
     for (i=0; i < totalUsers; i++) {
@@ -532,6 +671,9 @@ struct User * findUserByName(char *username) {
     return NULL;
 }
 
+/* findUserbySocket
+ * @param sockfd - socket to reference userby
+ * returns Null if no user found */
 struct User * findUserbySocket(int sockfd) {
     int i;
     for (i=0; i < totalUsers; i++) {
@@ -542,6 +684,13 @@ struct User * findUserbySocket(int sockfd) {
     }
     return NULL;
 }
+
+/* getusers
+ * @param filename - string of the filename
+ * @param fp - file descriptor to read file into
+ * populates allusers array with username and passwords found
+ * in file
+ */
 int getusers(char *filename, FILE *fp) {
     char * line = NULL;
     size_t len = 0;
@@ -570,7 +719,7 @@ int getusers(char *filename, FILE *fp) {
             allusers[i].password[j-spc-2] = '\0';
             
             allusers[i].socket = allusers[i].loggedin = 0;
-            allusers[i].logout = 0;
+            allusers[i].logout_time = 0;
             i++;
         } else {
             error("An error occured while parsing users from text file\n");

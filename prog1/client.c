@@ -10,6 +10,7 @@
 
 fd_set read_fds,master, write_fds; //file descriptor list contains stdin and socket connection to server
 
+//log errors appropriately
 void error(const char *msg)
 {
     perror(msg);
@@ -52,20 +53,18 @@ int main(int argc, char *argv[])
     
     if (connect(sockfd,(struct sockaddr *) &serv_addr,sizeof(serv_addr)) < 0)
         error("ERROR connecting");
-    tv.tv_sec = 5;
-    tv.tv_usec = 0;
-    
     
     int serverUp = 1;
     int auth = 1;
     
-    //Initial Authentication
+    //Initial Authentication loop until we are authenticated
     while(auth) {
         if((nbytes = recv(sockfd, buffer, sizeof buffer, 0)) > 0) {
             //printf("Server Message: %s", buffer);
             if( strncmp(buffer, "Too many incorrect logins.", nbytes) == 0 ||
                 strncmp(buffer, "User already logged in.", nbytes) == 0 ||
-               strncmp(buffer, "Blocked for too many incorrect login attempts.", nbytes) == 0 )
+               strncmp(buffer, "Blocked for too many incorrect login attempts.", nbytes) == 0 ||
+               strncmp(buffer, "Time out due to inactivity.\n", nbytes) == 0)
             {
                 printf("> %s\n", buffer);
                 //auth = 1;
@@ -138,7 +137,7 @@ int main(int argc, char *argv[])
             }
             
         }
-        else if(FD_ISSET(STDIN_FILENO, &read_fds)) {
+        else if(FD_ISSET(STDIN_FILENO, &read_fds)) { //check if there is data on stdin
             if (fgets(buffer,sizeof(buffer), stdin)) {
                 
                 //printf("Length: %lu\n" ,strlen(buffer));
@@ -150,18 +149,6 @@ int main(int argc, char *argv[])
                 memset(&buffer, 0, sizeof(buffer));
             }
         }
-       /* printf("Please enter the message: ");
-        bzero(buffer,256);
-        fgets(buffer,255,stdin);
-        n = write(sockfd,buffer,strlen(buffer));
-        if (n < 0)
-            error("ERROR writing to socket");
-    
-        bzero(buffer,256);
-        n = read(sockfd,buffer,255);
-        if (n < 0)
-            error("ERROR reading from socket");
-        printf("%s\n",buffer);*/
         
     }
     close(sockfd);
