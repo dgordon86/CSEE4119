@@ -699,8 +699,10 @@ int getusers(char *filename, FILE *fp) {
     int spc, i, j;
     //get list of users
     fp = fopen(filename, "r");
-    if (fp == NULL)
+    if (fp == NULL) {
+        printf("could not file: %s. Exiting...\n", filename);
         exit(EXIT_FAILURE);
+    }
     
     i = spc = 0;
     while ((read = getline(&line, &len, fp)) != -1) {
