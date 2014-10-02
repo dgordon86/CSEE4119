@@ -1,6 +1,7 @@
 4119: Socket Programming
-@author Daniel Gordon - dmg2173
 ========
+
+@author Daniel Gordon - dmg2173
 
 The code for the socket programming project is broken into two files: client.c and server.c.
 The idea was to make the client "dumb" and simply relay messages between the end user and the server. All of the logic
