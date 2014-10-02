@@ -1,4 +1,5 @@
 4119: Socket Programming
+@author Daniel Gordon - dmg2173
 ========
 
 The code for the socket programming project is broken into two files: client.c and server.c.
