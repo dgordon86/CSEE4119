@@ -7,7 +7,11 @@ The code for the socket programming project is broken into two files: client.c a
 The idea was to make the client "dumb" and simply relay messages between the end user and the server. All of the logic
 (such as authentication, timeouts, blocking, and commands) are handled on the server side. 
 
-Important variables that are expected to be modified 
+Important variables that are expected to be modified are found in server.c at the top. The following variables are defined in terms of seconds. Please update accordingly.
+
+* LAST_HOUR
+* TIME_OUT
+* BLOCK_TIME
 
 Development Environment
 --------
@@ -25,10 +29,15 @@ cd in to `prog1` and run the command `make`
 This will compile both the server and client.
 
 Next start the server with the command:
+
     ./Server <port-num>
+    
 In another terminal connect to the server by starting the client with the command:
+
     ./Client <ip-address> <port-num>
+    
 The client will immediately be prompted to authenticate
+
     > Please authenticate
     > User: <type username>
     > Password: <type password>
