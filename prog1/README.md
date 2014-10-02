@@ -31,10 +31,12 @@ This will compile both the server and client.
 Next start the server with the command:
 
     ./Server <port-num>
+    example: ./Server 8888
     
 In another terminal connect to the server by starting the client with the command:
 
     ./Client <ip-address> <port-num>
+    example for localhost: ./Client 127.0.0.1 8888
     
 The client will immediately be prompted to authenticate
 
